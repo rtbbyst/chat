@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>私聊聊天室</title>
+  <title>私聊 + 群聊 聊天室</title>
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
@@ -20,15 +20,19 @@
     #error-msg { color:red; font-size:14px; }
     /* 主界面 */
     #main-screen { display:none; width:100%; height:100%; }
-    .sidebar { width:250px; background:#f7f8fa; border-right:1px solid #ddd; display:flex; flex-direction:column; }
+    .sidebar { width:260px; background:#f7f8fa; border-right:1px solid #ddd; display:flex; flex-direction:column; }
     .sidebar .header { padding:16px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center; }
-    .sidebar .header button { background:none; border:none; color:#1877f2; cursor:pointer; }
+    .sidebar .header button { background:none; border:none; color:#1877f2; cursor:pointer; font-weight:bold; }
     .user-list { flex:1; overflow-y:auto; padding:8px; }
-    .user-item { padding:10px; cursor:pointer; border-radius:6px; margin-bottom:4px; }
-    .user-item:hover { background:#e4e6eb; }
-    .user-item.active { background:#e7f3ff; }
+    .section-title { font-size:0.85em; color:#65676b; padding:8px 10px 4px; font-weight:bold; }
+    .user-item, .group-item { padding:10px; cursor:pointer; border-radius:6px; margin-bottom:4px; }
+    .user-item:hover, .group-item:hover { background:#e4e6eb; }
+    .user-item.active, .group-item.active { background:#e7f3ff; }
+    .group-item { display:flex; justify-content:space-between; }
+    .group-item .group-name { font-weight:bold; }
     .chat-area { flex:1; display:flex; flex-direction:column; }
-    .chat-header { padding:16px; border-bottom:1px solid #ddd; font-weight:bold; }
+    .chat-header { padding:16px; border-bottom:1px solid #ddd; font-weight:bold; display:flex; justify-content:space-between; align-items:center; }
+    .chat-header .close-btn { background:none; border:none; color:#888; cursor:pointer; font-size:1.2em; }
     .messages { flex:1; padding:16px; overflow-y:auto; background:#fff; }
     .msg { margin-bottom:12px; max-width:70%; clear:both; }
     .msg.sent { float:right; text-align:right; }
@@ -36,11 +40,25 @@
     .msg .bubble { display:inline-block; padding:8px 12px; border-radius:18px; word-wrap:break-word; }
     .sent .bubble { background:#0084ff; color:white; }
     .received .bubble { background:#e4e6eb; color:#050505; }
+    .msg .sender-name { font-size:0.75em; color:#65676b; margin-bottom:2px; display:block; }
+    .sent .sender-name { text-align:right; }
     .msg .time { font-size:0.7em; color:#65676b; margin-top:2px; display:block; }
     .input-area { padding:12px; border-top:1px solid #ddd; display:flex; gap:8px; }
     .input-area input { flex:1; padding:10px; border:1px solid #ccc; border-radius:20px; outline:none; }
     .input-area button { padding:10px 20px; background:#0084ff; color:white; border:none; border-radius:20px; cursor:pointer; }
     .hidden { display:none !important; }
+    /* 创建群聊弹窗 */
+    .modal { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); display:flex; justify-content:center; align-items:center; z-index:999; }
+    .modal-content { background:white; padding:20px; border-radius:8px; width:400px; max-height:80%; overflow-y:auto; }
+    .modal-content h3 { margin-bottom:12px; }
+    .modal-content input[type=text] { width:100%; padding:8px; margin-bottom:12px; border:1px solid #ccc; border-radius:4px; }
+    .member-select { max-height:200px; overflow-y:auto; margin-bottom:12px; }
+    .member-option { display:flex; align-items:center; gap:8px; padding:4px 0; }
+    .member-option input { margin:0; }
+    .modal-buttons { display:flex; gap:8px; justify-content:flex-end; }
+    .modal-buttons button { padding:8px 16px; border:none; border-radius:4px; cursor:pointer; }
+    .btn-primary { background:#1877f2; color:white; }
+    .btn-cancel { background:#ddd; }
   </style>
 </head>
 <body>
@@ -64,14 +82,40 @@
         <span id="current-username"></span>
         <button id="logout-btn">退出</button>
       </div>
-      <div class="user-list" id="user-list"></div>
+      <div class="user-list" id="user-list">
+        <div class="section-title">私聊</div>
+        <div id="private-list"></div>
+        <div class="section-title">
+          群聊
+          <button id="create-group-btn" style="float:right; font-size:0.85em;">+ 创建</button>
+        </div>
+        <div id="group-list"></div>
+      </div>
     </div>
     <div class="chat-area">
-      <div class="chat-header" id="chat-header">选择一个用户开始聊天</div>
+      <div class="chat-header" id="chat-header">
+        <span>选择一个聊天</span>
+        <button class="close-btn" id="close-chat" style="display:none;">✕</button>
+      </div>
       <div class="messages" id="messages"></div>
       <div class="input-area">
-        <input type="text" id="msg-input" placeholder="输入消息..." disabled>
+        <input type="text" id="msg-input" placeholder="选择聊天后即可发言" disabled>
         <button id="send-btn" disabled>发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 创建群聊弹窗（隐藏） -->
+  <div id="create-group-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>创建群聊</h3>
+      <input type="text" id="group-name-input" placeholder="群聊名称">
+      <div class="member-select" id="member-select">
+        <!-- 动态生成用户复选框 -->
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="cancel-group">取消</button>
+        <button class="btn-primary" id="confirm-create-group">创建</button>
       </div>
     </div>
   </div>
@@ -91,7 +135,6 @@
   firebase.initializeApp(firebaseConfig);
   const db = firebase.firestore();
 
-  // 简单盐值（仅用于演示，实际应更复杂并保密）
   const SALT = "my-chat-app-salt-2024";
 
   // UI 元素
@@ -105,34 +148,31 @@
   const errorMsg = document.getElementById('error-msg');
   const currentUsernameSpan = document.getElementById('current-username');
   const logoutBtn = document.getElementById('logout-btn');
-  const userListDiv = document.getElementById('user-list');
+  const privateListDiv = document.getElementById('private-list');
+  const groupListDiv = document.getElementById('group-list');
   const chatHeader = document.getElementById('chat-header');
+  const closeChatBtn = document.getElementById('close-chat');
   const messagesDiv = document.getElementById('messages');
   const msgInput = document.getElementById('msg-input');
   const sendBtn = document.getElementById('send-btn');
+  const createGroupBtn = document.getElementById('create-group-btn');
+  const createGroupModal = document.getElementById('create-group-modal');
+  const groupNameInput = document.getElementById('group-name-input');
+  const memberSelectDiv = document.getElementById('member-select');
+  const cancelGroupBtn = document.getElementById('cancel-group');
+  const confirmCreateGroupBtn = document.getElementById('confirm-create-group');
 
   let currentUser = null; // { username }
-  let selectedUser = null; // 正在私聊的用户名
-  let currentChatId = null;
+  let currentChat = null; // { type: 'private'|'group', id: string, name: string }
+  let allUsers = [];
   let unsubscribeMessages = null;
   let unsubscribeUsers = null;
+  let unsubscribeGroups = null;
 
-  // 模式切换
-  let mode = 'login'; // 'login' or 'register'
-  switchModeBtn.addEventListener('click', () => {
-    mode = mode === 'login' ? 'register' : 'login';
-    authTitle.textContent = mode === 'login' ? '登录' : '注册';
-    authBtn.textContent = mode === 'login' ? '登录' : '注册';
-    switchModeBtn.textContent = mode === 'login' ? '没有账号？注册' : '已有账号？登录';
-    errorMsg.textContent = '';
-  });
-
-  // 密码哈希
+  // ========== 认证相关 ==========
   function hashPassword(password) {
     return CryptoJS.SHA256(password + SALT).toString();
   }
-
-  // 注册
   async function register(username, password) {
     const userRef = db.collection('users').doc(username);
     const doc = await userRef.get();
@@ -143,8 +183,6 @@
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
   }
-
-  // 登录
   async function login(username, password) {
     const userRef = db.collection('users').doc(username);
     const doc = await userRef.get();
@@ -154,17 +192,21 @@
     return userData;
   }
 
-  // 处理认证
+  let mode = 'login';
+  switchModeBtn.addEventListener('click', () => {
+    mode = mode === 'login' ? 'register' : 'login';
+    authTitle.textContent = mode === 'login' ? '登录' : '注册';
+    authBtn.textContent = mode === 'login' ? '登录' : '注册';
+    switchModeBtn.textContent = mode === 'login' ? '没有账号？注册' : '已有账号？登录';
+    errorMsg.textContent = '';
+  });
+
   authBtn.addEventListener('click', async () => {
     const username = usernameInput.value.trim();
     const password = passwordInput.value.trim();
-    if (!username || !password) {
-      errorMsg.textContent = '请输入用户名和密码';
-      return;
-    }
+    if (!username || !password) { errorMsg.textContent = '请输入用户名和密码'; return; }
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
-      errorMsg.textContent = '用户名只能包含字母、数字、下划线，长度3-20';
-      return;
+      errorMsg.textContent = '用户名只能包含字母、数字、下划线，长度3-20'; return;
     }
     try {
       if (mode === 'register') {
@@ -178,7 +220,6 @@
       } else {
         await login(username, password);
         currentUser = { username };
-        // 保存登录状态
         sessionStorage.setItem('chatUser', JSON.stringify(currentUser));
         showMainScreen();
       }
@@ -188,80 +229,150 @@
     }
   });
 
-  // 退出登录
   logoutBtn.addEventListener('click', () => {
     currentUser = null;
-    selectedUser = null;
+    currentChat = null;
     sessionStorage.removeItem('chatUser');
     if (unsubscribeMessages) unsubscribeMessages();
     if (unsubscribeUsers) unsubscribeUsers();
+    if (unsubscribeGroups) unsubscribeGroups();
     authScreen.style.display = 'flex';
     mainScreen.style.display = 'none';
     usernameInput.value = '';
     passwordInput.value = '';
   });
 
-  // 显示主界面
   function showMainScreen() {
     authScreen.style.display = 'none';
     mainScreen.style.display = 'flex';
     currentUsernameSpan.textContent = currentUser.username;
     loadUserList();
+    loadGroupList();
   }
 
-  // 加载用户列表（排除自己）
+  // ========== 用户列表（私聊） ==========
   function loadUserList() {
     if (unsubscribeUsers) unsubscribeUsers();
-    unsubscribeUsers = db.collection('users')
+    unsubscribeUsers = db.collection('users').onSnapshot(snapshot => {
+      allUsers = [];
+      privateListDiv.innerHTML = '';
+      snapshot.forEach(doc => {
+        const username = doc.data().username;
+        if (username === currentUser.username) return;
+        allUsers.push(username);
+        const div = document.createElement('div');
+        div.className = 'user-item';
+        if (currentChat && currentChat.type === 'private' && currentChat.id === username) {
+          div.classList.add('active');
+        }
+        div.textContent = username;
+        div.addEventListener('click', () => openPrivateChat(username));
+        privateListDiv.appendChild(div);
+      });
+    });
+  }
+
+  // ========== 群聊列表 ==========
+  function loadGroupList() {
+    if (unsubscribeGroups) unsubscribeGroups();
+    unsubscribeGroups = db.collection('groups')
+      .where('members', 'array-contains', currentUser.username)
       .onSnapshot(snapshot => {
-        userListDiv.innerHTML = '';
+        groupListDiv.innerHTML = '';
         snapshot.forEach(doc => {
-          const username = doc.data().username;
-          if (username === currentUser.username) return;
+          const group = doc.data();
           const div = document.createElement('div');
-          div.className = 'user-item';
-          if (selectedUser === username) div.classList.add('active');
-          div.textContent = username;
-          div.addEventListener('click', () => selectUser(username));
-          userListDiv.appendChild(div);
+          div.className = 'group-item';
+          if (currentChat && currentChat.type === 'group' && currentChat.id === doc.id) {
+            div.classList.add('active');
+          }
+          div.innerHTML = `<span class="group-name"># ${group.name}</span>`;
+          div.addEventListener('click', () => openGroupChat(doc.id, group.name));
+          groupListDiv.appendChild(div);
         });
       });
   }
 
-  // 选择私聊对象
-  function selectUser(username) {
-    selectedUser = username;
-    // 更新列表高亮
-    document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
-    const items = [...document.querySelectorAll('.user-item')];
-    const target = items.find(el => el.textContent === username);
-    if (target) target.classList.add('active');
-
-    // 生成唯一的聊天ID（按字母排序）
-    const users = [currentUser.username, username].sort();
-    currentChatId = users[0] + '_' + users[1];
-
-    chatHeader.textContent = `与 ${username} 聊天中`;
+  // ========== 打开聊天 ==========
+  function openPrivateChat(username) {
+    currentChat = { type: 'private', id: username, name: username };
+    chatHeader.innerHTML = `<span>与 ${username} 聊天中</span>`;
+    closeChatBtn.style.display = 'inline-block';
     msgInput.disabled = false;
     sendBtn.disabled = false;
-    messagesDiv.innerHTML = '';
+    msgInput.placeholder = '输入消息...';
+    updateActiveChatInList();
     listenToMessages();
   }
 
-  // 监听当前聊天消息
+  function openGroupChat(groupId, groupName) {
+    currentChat = { type: 'group', id: groupId, name: groupName };
+    chatHeader.innerHTML = `<span>群聊：# ${groupName}</span>`;
+    closeChatBtn.style.display = 'inline-block';
+    msgInput.disabled = false;
+    sendBtn.disabled = false;
+    msgInput.placeholder = '输入消息...';
+    updateActiveChatInList();
+    listenToMessages();
+  }
+
+  closeChatBtn.addEventListener('click', () => {
+    currentChat = null;
+    chatHeader.innerHTML = '<span>选择一个聊天</span>';
+    closeChatBtn.style.display = 'none';
+    msgInput.disabled = true;
+    sendBtn.disabled = true;
+    msgInput.placeholder = '选择聊天后即可发言';
+    messagesDiv.innerHTML = '';
+    updateActiveChatInList();
+    if (unsubscribeMessages) unsubscribeMessages();
+  });
+
+  function updateActiveChatInList() {
+    // 更新私聊列表的 active 样式
+    document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
+    if (currentChat && currentChat.type === 'private') {
+      const items = [...document.querySelectorAll('.user-item')];
+      const target = items.find(el => el.textContent === currentChat.id);
+      if (target) target.classList.add('active');
+    }
+    // 更新群聊列表的 active 样式
+    document.querySelectorAll('.group-item').forEach(el => el.classList.remove('active'));
+    if (currentChat && currentChat.type === 'group') {
+      const items = [...document.querySelectorAll('.group-item')];
+      const target = items.find(el => el.querySelector('.group-name')?.textContent.includes(currentChat.name));
+      if (target) target.classList.add('active');
+    }
+  }
+
+  // ========== 消息监听 ==========
   function listenToMessages() {
     if (unsubscribeMessages) unsubscribeMessages();
-    if (!currentChatId) return;
-    unsubscribeMessages = db.collection('chats').doc(currentChatId)
-      .collection('messages')
-      .orderBy('timestamp', 'asc')
+    if (!currentChat) return;
+
+    let messagesRef;
+    if (currentChat.type === 'private') {
+      // 私聊：chatId = 排序后的两个用户名拼接
+      const users = [currentUser.username, currentChat.id].sort();
+      const chatId = users[0] + '_' + users[1];
+      messagesRef = db.collection('chats').doc(chatId).collection('messages');
+    } else {
+      // 群聊：groups/{groupId}/messages
+      messagesRef = db.collection('groups').doc(currentChat.id).collection('messages');
+    }
+
+    unsubscribeMessages = messagesRef.orderBy('timestamp', 'asc')
       .onSnapshot(snapshot => {
         messagesDiv.innerHTML = '';
         snapshot.forEach(doc => {
           const msg = doc.data();
           const div = document.createElement('div');
           div.className = 'msg ' + (msg.sender === currentUser.username ? 'sent' : 'received');
-          div.innerHTML = `<span class="bubble">${escapeHtml(msg.text)}</span>
+          // 群聊中显示发送者名字
+          if (currentChat.type === 'group' && msg.sender !== currentUser.username) {
+            div.innerHTML = `<span class="sender-name">${msg.sender}</span>`;
+          }
+          div.innerHTML += `<span class="bubble">${escapeHtml(msg.text)}</span>
                            <span class="time">${formatTime(msg.timestamp)}</span>`;
           messagesDiv.appendChild(div);
         });
@@ -269,12 +380,20 @@
       });
   }
 
-  // 发送消息
+  // ========== 发送消息 ==========
   sendBtn.addEventListener('click', async () => {
     const text = msgInput.value.trim();
-    if (!text || !currentChatId) return;
+    if (!text || !currentChat) return;
     try {
-      await db.collection('chats').doc(currentChatId).collection('messages').add({
+      let messagesRef;
+      if (currentChat.type === 'private') {
+        const users = [currentUser.username, currentChat.id].sort();
+        const chatId = users[0] + '_' + users[1];
+        messagesRef = db.collection('chats').doc(chatId).collection('messages');
+      } else {
+        messagesRef = db.collection('groups').doc(currentChat.id).collection('messages');
+      }
+      await messagesRef.add({
         text: text,
         sender: currentUser.username,
         timestamp: firebase.firestore.FieldValue.serverTimestamp()
@@ -288,6 +407,47 @@
     if (e.key === 'Enter') sendBtn.click();
   });
 
+  // ========== 创建群聊 ==========
+  createGroupBtn.addEventListener('click', () => {
+    // 填充用户列表（复选框）
+    memberSelectDiv.innerHTML = '';
+    allUsers.forEach(username => {
+      const label = document.createElement('label');
+      label.className = 'member-option';
+      label.innerHTML = `<input type="checkbox" value="${username}"> ${username}`;
+      memberSelectDiv.appendChild(label);
+    });
+    groupNameInput.value = '';
+    createGroupModal.classList.remove('hidden');
+  });
+
+  cancelGroupBtn.addEventListener('click', () => {
+    createGroupModal.classList.add('hidden');
+  });
+
+  confirmCreateGroupBtn.addEventListener('click', async () => {
+    const groupName = groupNameInput.value.trim();
+    if (!groupName) { alert('请输入群聊名称'); return; }
+    const checkboxes = memberSelectDiv.querySelectorAll('input[type="checkbox"]:checked');
+    const members = [currentUser.username]; // 自动包含自己
+    checkboxes.forEach(cb => members.push(cb.value));
+    if (members.length < 2) { alert('至少选择一位成员'); return; }
+
+    try {
+      await db.collection('groups').add({
+        name: groupName,
+        members: members,
+        createdBy: currentUser.username,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      createGroupModal.classList.add('hidden');
+      // 自动打开该群聊（需要获取新创建的群ID？简单起见，关闭弹窗后会刷新群列表）
+    } catch (e) {
+      alert('创建失败');
+    }
+  });
+
+  // 工具函数
   function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -299,7 +459,7 @@
     return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
   }
 
-  // 检查登录状态（页面刷新恢复）
+  // 页面加载时检查登录状态
   window.addEventListener('load', () => {
     const saved = sessionStorage.getItem('chatUser');
     if (saved) {

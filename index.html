@@ -1,136 +1,312 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>hi</title>
+  <title>私聊聊天室</title>
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+  <!-- crypto-js 用于密码哈希 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#0d1117;color:#c9d1d9;display:flex;justify-content:center;padding:20px}
-    #app{width:100%;max-width:600px;background:#161b22;border:1px solid #30363d;border-radius:6px;display:flex;flex-direction:column;height:90vh}
-    .header{padding:16px;border-bottom:1px solid #30363d;font-weight:600}
-    #messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
-    .msg{background:#21262d;border-radius:6px;padding:8px 12px;max-width:80%;word-wrap:break-word}
-    .msg.self{background:#1f6feb;align-self:flex-end}
-    .msg .author{font-weight:600;font-size:0.85em;color:#58a6ff}
-    .msg .time{font-size:0.75em;color:#8b949e;margin-left:8px}
-    .msg .body{margin-top:4px}
-    .input-area{padding:12px;border-top:1px solid #30363d;display:flex;gap:8px}
-    #inputMsg{flex:1;padding:8px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;outline:none}
-    button{padding:8px 16px;background:#238636;border:1px solid #2ea043;border-radius:6px;color:white;cursor:pointer}
-    button:hover{background:#2ea043}
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: sans-serif; background:#f0f2f5; display:flex; justify-content:center; align-items:center; height:100vh; }
+    #app { width:900px; height:600px; background:white; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,0.1); display:flex; overflow:hidden; }
+    /* 登录注册界面 */
+    #auth-screen { width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:20px; }
+    #auth-screen input { padding:10px; width:250px; border:1px solid #ccc; border-radius:4px; }
+    #auth-screen button { padding:10px 20px; background:#1877f2; color:white; border:none; border-radius:4px; cursor:pointer; }
+    #error-msg { color:red; font-size:14px; }
+    /* 主界面 */
+    #main-screen { display:none; width:100%; height:100%; }
+    .sidebar { width:250px; background:#f7f8fa; border-right:1px solid #ddd; display:flex; flex-direction:column; }
+    .sidebar .header { padding:16px; border-bottom:1px solid #ddd; display:flex; justify-content:space-between; align-items:center; }
+    .sidebar .header button { background:none; border:none; color:#1877f2; cursor:pointer; }
+    .user-list { flex:1; overflow-y:auto; padding:8px; }
+    .user-item { padding:10px; cursor:pointer; border-radius:6px; margin-bottom:4px; }
+    .user-item:hover { background:#e4e6eb; }
+    .user-item.active { background:#e7f3ff; }
+    .chat-area { flex:1; display:flex; flex-direction:column; }
+    .chat-header { padding:16px; border-bottom:1px solid #ddd; font-weight:bold; }
+    .messages { flex:1; padding:16px; overflow-y:auto; background:#fff; }
+    .msg { margin-bottom:12px; max-width:70%; clear:both; }
+    .msg.sent { float:right; text-align:right; }
+    .msg.received { float:left; }
+    .msg .bubble { display:inline-block; padding:8px 12px; border-radius:18px; word-wrap:break-word; }
+    .sent .bubble { background:#0084ff; color:white; }
+    .received .bubble { background:#e4e6eb; color:#050505; }
+    .msg .time { font-size:0.7em; color:#65676b; margin-top:2px; display:block; }
+    .input-area { padding:12px; border-top:1px solid #ddd; display:flex; gap:8px; }
+    .input-area input { flex:1; padding:10px; border:1px solid #ccc; border-radius:20px; outline:none; }
+    .input-area button { padding:10px 20px; background:#0084ff; color:white; border:none; border-radius:20px; cursor:pointer; }
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
 <div id="app">
-  <div class="header">💬 GitHub Issues 聊天室</div>
-  <div id="messages"></div>
-  <div class="input-area">
-    <input type="text" id="inputMsg" placeholder="输入消息..." disabled>
-    <button id="sendBtn" disabled>发送</button>
+  <!-- 登录注册界面 -->
+  <div id="auth-screen">
+    <h2 id="auth-title">登录</h2>
+    <input type="text" id="username" placeholder="用户名">
+    <input type="password" id="password" placeholder="密码">
+    <div>
+      <button id="auth-btn">登录</button>
+      <button id="switch-mode" style="background:#42b72a;">没有账号？注册</button>
+    </div>
+    <p id="error-msg"></p>
+  </div>
+
+  <!-- 主聊天界面 -->
+  <div id="main-screen">
+    <div class="sidebar">
+      <div class="header">
+        <span id="current-username"></span>
+        <button id="logout-btn">退出</button>
+      </div>
+      <div class="user-list" id="user-list"></div>
+    </div>
+    <div class="chat-area">
+      <div class="chat-header" id="chat-header">选择一个用户开始聊天</div>
+      <div class="messages" id="messages"></div>
+      <div class="input-area">
+        <input type="text" id="msg-input" placeholder="输入消息..." disabled>
+        <button id="send-btn" disabled>发送</button>
+      </div>
+    </div>
   </div>
 </div>
 
 <script>
-  // ========== 必须修改下面4个配置 ==========
-  const OWNER = '你的GitHub用户名';        // 改成你的 GitHub 用户名
-  const REPO = '你的仓库名';               // 改成仓库名，比如 chatroom
-  const ISSUE_NUMBER = 1;                 // 之前创建的 Issue 编号
-  const TOKEN = 'ghp_你的Token';          // 第二步生成的 Token，格式 ghp_xxx
+  // ==================== 你的 Firebase 配置 ====================
+  const firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+  // ===========================================================
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
 
+  // 简单盐值（仅用于演示，实际应更复杂并保密）
+  const SALT = "my-chat-app-salt-2024";
+
+  // UI 元素
+  const authScreen = document.getElementById('auth-screen');
+  const mainScreen = document.getElementById('main-screen');
+  const authTitle = document.getElementById('auth-title');
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  const authBtn = document.getElementById('auth-btn');
+  const switchModeBtn = document.getElementById('switch-mode');
+  const errorMsg = document.getElementById('error-msg');
+  const currentUsernameSpan = document.getElementById('current-username');
+  const logoutBtn = document.getElementById('logout-btn');
+  const userListDiv = document.getElementById('user-list');
+  const chatHeader = document.getElementById('chat-header');
   const messagesDiv = document.getElementById('messages');
-  const inputMsg = document.getElementById('inputMsg');
-  const sendBtn = document.getElementById('sendBtn');
+  const msgInput = document.getElementById('msg-input');
+  const sendBtn = document.getElementById('send-btn');
 
-  let currentUser = '';
+  let currentUser = null; // { username }
+  let selectedUser = null; // 正在私聊的用户名
+  let currentChatId = null;
+  let unsubscribeMessages = null;
+  let unsubscribeUsers = null;
 
-  // 检查 Token 是否已正确填写
-  if (TOKEN && TOKEN !== 'ghp_你的Token') {
-    inputMsg.disabled = false;
-    sendBtn.disabled = false;
-    // 获取 Token 对应的 GitHub 用户名作为自己的昵称
-    fetch('https://api.github.com/user', {
-      headers: { Authorization: `token ${TOKEN}` }
-    }).then(r => r.json()).then(data => {
-      currentUser = data.login || '我';
-    }).catch(() => {});
-  } else {
-    inputMsg.disabled = true;
-    sendBtn.disabled = true;
-    inputMsg.placeholder = '未配置发送 Token，只读模式';
-  }
-
-  // 从 Issue 拉取所有评论并显示
-  async function loadMessages() {
-    const url = `https://api.github.com/repos/${OWNER}/${REPO}/issues/${ISSUE_NUMBER}/comments`;
-    try {
-      const response = await fetch(url);
-      const comments = await response.json();
-      renderMessages(comments);
-    } catch (e) {
-      // 忽略错误，可能是仓库不存在或网络问题
-    }
-  }
-
-  function renderMessages(comments) {
-    messagesDiv.innerHTML = '';
-    comments.forEach(comment => {
-      const msgDiv = document.createElement('div');
-      msgDiv.className = 'msg';
-      // 如果当前登录用户是这条消息的作者，就显示为蓝色自己的消息
-      if (currentUser && comment.user.login === currentUser) {
-        msgDiv.classList.add('self');
-      }
-      msgDiv.innerHTML = `
-        <span class="author">${escapeHtml(comment.user.login)}</span>
-        <span class="time">${new Date(comment.created_at).toLocaleString()}</span>
-        <div class="body">${escapeHtml(comment.body)}</div>
-      `;
-      messagesDiv.appendChild(msgDiv);
-    });
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-  }
-
-  function escapeHtml(text) {
-    const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
-    return text.replace(/[&<>"']/g, m => map[m]);
-  }
-
-  // 发送消息（就是给 Issue 添加一条评论）
-  async function sendMessage() {
-    const text = inputMsg.value.trim();
-    if (!text) return;
-    sendBtn.disabled = true;
-    inputMsg.disabled = true;
-    try {
-      const res = await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/issues/${ISSUE_NUMBER}/comments`, {
-        method: 'POST',
-        headers: {
-          Authorization: `token ${TOKEN}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/vnd.github.v3+json'
-        },
-        body: JSON.stringify({ body: text })
-      });
-      if (!res.ok) throw new Error(await res.text());
-      inputMsg.value = '';
-      await loadMessages();
-    } catch (error) {
-      alert('发送失败: ' + error.message);
-    }
-    sendBtn.disabled = false;
-    inputMsg.disabled = false;
-    inputMsg.focus();
-  }
-
-  sendBtn.addEventListener('click', sendMessage);
-  inputMsg.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMessage();
+  // 模式切换
+  let mode = 'login'; // 'login' or 'register'
+  switchModeBtn.addEventListener('click', () => {
+    mode = mode === 'login' ? 'register' : 'login';
+    authTitle.textContent = mode === 'login' ? '登录' : '注册';
+    authBtn.textContent = mode === 'login' ? '登录' : '注册';
+    switchModeBtn.textContent = mode === 'login' ? '没有账号？注册' : '已有账号？登录';
+    errorMsg.textContent = '';
   });
 
-  // 初次加载，每10秒自动刷新
-  loadMessages();
-  setInterval(loadMessages, 10000);
+  // 密码哈希
+  function hashPassword(password) {
+    return CryptoJS.SHA256(password + SALT).toString();
+  }
+
+  // 注册
+  async function register(username, password) {
+    const userRef = db.collection('users').doc(username);
+    const doc = await userRef.get();
+    if (doc.exists) throw new Error('用户名已存在');
+    await userRef.set({
+      username: username,
+      passwordHash: hashPassword(password),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  }
+
+  // 登录
+  async function login(username, password) {
+    const userRef = db.collection('users').doc(username);
+    const doc = await userRef.get();
+    if (!doc.exists) throw new Error('用户名不存在');
+    const userData = doc.data();
+    if (userData.passwordHash !== hashPassword(password)) throw new Error('密码错误');
+    return userData;
+  }
+
+  // 处理认证
+  authBtn.addEventListener('click', async () => {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value.trim();
+    if (!username || !password) {
+      errorMsg.textContent = '请输入用户名和密码';
+      return;
+    }
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+      errorMsg.textContent = '用户名只能包含字母、数字、下划线，长度3-20';
+      return;
+    }
+    try {
+      if (mode === 'register') {
+        await register(username, password);
+        errorMsg.style.color = 'green';
+        errorMsg.textContent = '注册成功，请登录';
+        mode = 'login';
+        authTitle.textContent = '登录';
+        authBtn.textContent = '登录';
+        switchModeBtn.textContent = '没有账号？注册';
+      } else {
+        await login(username, password);
+        currentUser = { username };
+        // 保存登录状态
+        sessionStorage.setItem('chatUser', JSON.stringify(currentUser));
+        showMainScreen();
+      }
+    } catch (e) {
+      errorMsg.style.color = 'red';
+      errorMsg.textContent = e.message;
+    }
+  });
+
+  // 退出登录
+  logoutBtn.addEventListener('click', () => {
+    currentUser = null;
+    selectedUser = null;
+    sessionStorage.removeItem('chatUser');
+    if (unsubscribeMessages) unsubscribeMessages();
+    if (unsubscribeUsers) unsubscribeUsers();
+    authScreen.style.display = 'flex';
+    mainScreen.style.display = 'none';
+    usernameInput.value = '';
+    passwordInput.value = '';
+  });
+
+  // 显示主界面
+  function showMainScreen() {
+    authScreen.style.display = 'none';
+    mainScreen.style.display = 'flex';
+    currentUsernameSpan.textContent = currentUser.username;
+    loadUserList();
+  }
+
+  // 加载用户列表（排除自己）
+  function loadUserList() {
+    if (unsubscribeUsers) unsubscribeUsers();
+    unsubscribeUsers = db.collection('users')
+      .onSnapshot(snapshot => {
+        userListDiv.innerHTML = '';
+        snapshot.forEach(doc => {
+          const username = doc.data().username;
+          if (username === currentUser.username) return;
+          const div = document.createElement('div');
+          div.className = 'user-item';
+          if (selectedUser === username) div.classList.add('active');
+          div.textContent = username;
+          div.addEventListener('click', () => selectUser(username));
+          userListDiv.appendChild(div);
+        });
+      });
+  }
+
+  // 选择私聊对象
+  function selectUser(username) {
+    selectedUser = username;
+    // 更新列表高亮
+    document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
+    const items = [...document.querySelectorAll('.user-item')];
+    const target = items.find(el => el.textContent === username);
+    if (target) target.classList.add('active');
+
+    // 生成唯一的聊天ID（按字母排序）
+    const users = [currentUser.username, username].sort();
+    currentChatId = users[0] + '_' + users[1];
+
+    chatHeader.textContent = `与 ${username} 聊天中`;
+    msgInput.disabled = false;
+    sendBtn.disabled = false;
+    messagesDiv.innerHTML = '';
+    listenToMessages();
+  }
+
+  // 监听当前聊天消息
+  function listenToMessages() {
+    if (unsubscribeMessages) unsubscribeMessages();
+    if (!currentChatId) return;
+    unsubscribeMessages = db.collection('chats').doc(currentChatId)
+      .collection('messages')
+      .orderBy('timestamp', 'asc')
+      .onSnapshot(snapshot => {
+        messagesDiv.innerHTML = '';
+        snapshot.forEach(doc => {
+          const msg = doc.data();
+          const div = document.createElement('div');
+          div.className = 'msg ' + (msg.sender === currentUser.username ? 'sent' : 'received');
+          div.innerHTML = `<span class="bubble">${escapeHtml(msg.text)}</span>
+                           <span class="time">${formatTime(msg.timestamp)}</span>`;
+          messagesDiv.appendChild(div);
+        });
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      });
+  }
+
+  // 发送消息
+  sendBtn.addEventListener('click', async () => {
+    const text = msgInput.value.trim();
+    if (!text || !currentChatId) return;
+    try {
+      await db.collection('chats').doc(currentChatId).collection('messages').add({
+        text: text,
+        sender: currentUser.username,
+        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      msgInput.value = '';
+    } catch (e) {
+      alert('发送失败');
+    }
+  });
+  msgInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendBtn.click();
+  });
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+  function formatTime(ts) {
+    if (!ts) return '';
+    const date = ts.toDate();
+    return date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  }
+
+  // 检查登录状态（页面刷新恢复）
+  window.addEventListener('load', () => {
+    const saved = sessionStorage.getItem('chatUser');
+    if (saved) {
+      currentUser = JSON.parse(saved);
+      showMainScreen();
+    }
+  });
 </script>
 </body>
 </html>
